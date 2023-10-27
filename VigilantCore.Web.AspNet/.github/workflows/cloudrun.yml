@@ -1,0 +1,48 @@
+name: Deploy to Google Cloud Run
+
+on:
+  push:
+    branches:
+      - develop
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment: 
+      name: development
+    env:
+      CLOUDSDK_CORE_PROJECT: vigilant-core
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v2
+
+      - name: Write Google Cloud credentials to file
+        run: echo "${{ secrets.GCLOUD_AUTH }}" | base64 --decode > ./gcloud-service-key.json
+
+      - name: Set up Google Cloud SDK
+        uses: google-github-actions/setup-gcloud@v0
+        with:
+          version: 'latest'
+        env:
+          CLOUDSDK_PYTHON: '/usr/bin/python3'
+          CLOUDSDK_CORE_PROJECT: vigilant-core
+          GOOGLE_APPLICATION_CREDENTIALS: ./gcloud-service-key.json
+
+      - name: Authenticate with Google Cloud
+        run: gcloud auth activate-service-account --key-file=./gcloud-service-key.json
+
+      - name: Build and Push Docker Image
+        run: |
+          docker build -t gcr.io/vigilant-core/vigilant-api:latest ./VigilantCore
+          gcloud auth configure-docker
+          docker push gcr.io/vigilant-core/vigilant-api:latest
+
+      - name: Deploy to Google Cloud Run
+        run: |
+          gcloud run deploy vigilant-api --project vigilant-core \
+          --image gcr.io/vigilant-core/vigilant-api:latest \
+          --platform managed \
+          --region us-central1 \
+          --allow-unauthenticated \
+          --update-env-vars DatabaseConnection=${{ secrets.DATABASE_CONNECTION_STRING }},ADMIN_USER=${{ secrets.ADMIN_USER }},ADMIN_PASSWORD=${{ secrets.ADMIN_PASSWORD }}
